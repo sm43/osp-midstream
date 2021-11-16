@@ -1,0 +1,113 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: run-e2e-tests
+spec:
+  workspaces:
+    - name: shared-workspace
+  tasks:
+  - name: git-clone-plumbing
+    taskRef:
+      name: git-clone
+    params:
+      - name: url
+        value: https://github.com/tektoncd/plumbing
+      - name: revision
+        value: main
+      - name: subdirectory
+        value: src/github.com/tektoncd/plumbing      
+    workspaces:
+      - name: output
+        workspace: shared-workspace
+        subPath: source-code
+
+  - name: git-clone-pipeline
+    runAfter: [git-clone-plumbing]
+    taskRef:
+      name: git-clone
+    params:
+      - name: url
+        value: https://github.com/sm43/tektoncd-pipeline
+      - name: revision
+        value: test
+      - name: subdirectory
+        value: src/github.com/tektoncd/pipeline
+    workspaces:
+      - name: output
+        workspace: shared-workspace
+        subPath: source-code
+
+  - name: git-clone-triggers
+    runAfter: [git-clone-plumbing]
+    taskRef:
+      name: git-clone
+    params:
+      - name: url
+        value: https://github.com/openshift/tektoncd-triggers
+      - name: revision
+        value: release-v0.16.1
+      - name: subdirectory
+        value: src/github.com/tektoncd/triggers
+    workspaces:
+      - name: output
+        workspace: shared-workspace
+        subPath: source-code
+
+  - name: kubeconfig-creator
+    runAfter: [git-clone-pipeline, git-clone-triggers]
+    taskRef:
+      name: kubeconfig-creator
+    workspaces:
+      - name: output
+        workspace: shared-workspace
+        subPath: k8s-shared
+    params:
+      - name: name
+        value: clusterbot
+      - name: username
+        value: kubeadmin
+      - name: url
+        value: https://api.ci-ln-tr30yhk-72292.origin-ci-int-gce.dev.rhcloud.com:6443
+      - name: token
+        value: sha256~_nC4AMm4BBsxVLc3zOvtBm7vrm5JVhXC2BpBnuaT2oo
+
+  - name: e2e-test-pipeline
+    runAfter: [kubeconfig-creator]
+    taskRef:
+      name: e2e-test
+    workspaces:
+      - name: k8s-shared
+        workspace: shared-workspace
+        subPath: k8s-shared      
+      - name: source-code
+        workspace: shared-workspace
+        subPath: source-code
+    retries: 1
+    params:
+      - name: package
+        value: github.com/tektoncd/pipeline
+      - name: tests-path
+        value: ./test -skipRootUserTests=true 
+      - name: target-arch
+        value: arm64
+
+  - name: e2e-test-triggers
+    runAfter: [e2e-test-pipeline]
+    taskRef:
+      name: e2e-test
+    workspaces:
+      - name: k8s-shared
+        workspace: shared-workspace
+        subPath: k8s-shared      
+      - name: source-code
+        workspace: shared-workspace
+        subPath: source-code
+    retries: 1
+    params:
+      - name: package
+        value: github.com/tektoncd/triggers
+      - name: tests-path
+        value: ./test 
+      - name: target-arch
+        value: arm64
+ 
